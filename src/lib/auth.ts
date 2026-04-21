@@ -46,7 +46,7 @@ export const authOptions: NextAuthOptions = {
           return {
             id: user._id.toString(),
             name: shortName, 
-            unit: user.unit || "ВІТІ", // Значення з бази або дефолт
+            unit: user.unit, // Значення з бази або дефолт
             role: user.role,
             login: user.login
           };

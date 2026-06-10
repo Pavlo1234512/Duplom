@@ -1,62 +1,103 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import type { NextRequest } from 'next/server';
+import { getToken } from 'next-auth/jwt';
 import dbConnect from '@/lib/db';
 import User from '@/models/User';
+import Report from '@/models/BattleReport';
 
-export async function GET() {
+// Обробка отримання даних профілю
+export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userLogin = (session?.user as any)?.login;
+    await dbConnect();
+    let login = null;
 
-    if (!userLogin) {
+    // Ідентифікація користувача
+    const sessionToken = req.cookies.get('session_token')?.value;
+    if (sessionToken) {
+      login = sessionToken;
+    } else {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (token?.login) {
+        login = token.login;
+      }
+    }
+
+    if (!login) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await dbConnect();
-
-    // Шукаємо за логіном
-    const user = await User.findOne({ login: userLogin }).maxTimeMS(2000);
+    const user = await User.findOne({ login: login });
     
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Форматуємо ПІБ за твоїм стилем: Прізвище І. П.
-    const f = user.firstName ? `${user.firstName.charAt(0)}.` : "";
-    const m = user.middleName ? `${user.middleName.charAt(0)}.` : "";
-    const formattedName = `${user.lastName} ${f}${m}`.trim();
+    // Підрахунок активності (кількість звітів автора)
+    const count = await Report.countDocuments({ authorLogin: user.login });
 
-    // Повертаємо об'єкт з базовими даними + відформатованим ім'ям
     return NextResponse.json({
-      ...user._doc, // Всі дані з БД
-      formattedName, // Готове ім'я для відображення
-      unit: user.unit || "ВІТІ"
+      id: user._id.toString(),
+      userId: user._id.toString(),
+      _id: user._id.toString(),
+      firstName: user.firstName,
+      lastName: user.lastName,
+      position: user.position,
+      unit: user.unit,
+      rank: user.rank,
+      createdAt: user.createdAt,
+      count: count
     });
-  } catch (error: any) {
-    console.error("Profile API Error:", error);
+
+  } catch (error) {
+    console.error("Помилка профілю:", error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
-export async function PUT(req: Request) {
+// Обробка оновлення даних профілю
+export async function PUT(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const userLogin = (session?.user as any)?.login;
-
-    if (!userLogin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const data = await req.json();
     await dbConnect();
+    let login = null;
 
+    // Ідентифікація користувача
+    const sessionToken = req.cookies.get('session_token')?.value;
+    if (sessionToken) {
+      login = sessionToken;
+    } else {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (token?.login) login = token.login;
+    }
+
+    if (!login) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Отримання нових даних
+    const body = await req.json();
+    const { firstName, lastName, position, unit, rank } = body;
+
+    // Оновлення в базі
     const updatedUser = await User.findOneAndUpdate(
-      { login: userLogin },
-      { $set: data },
+      { login: login },
+      { 
+        $set: { 
+          firstName, 
+          lastName, 
+          position, 
+          unit, 
+          rank 
+        } 
+      },
       { new: true }
     );
 
-    return NextResponse.json(updatedUser);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!updatedUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ message: 'Profile updated', user: updatedUser });
+
+  } catch (error) {
+    console.error("Помилка оновлення профілю:", error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

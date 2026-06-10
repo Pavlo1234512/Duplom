@@ -1,28 +1,35 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { getToken } from "next-auth/jwt";
 import dbConnect from '@/lib/db';
-import Report from '@/models/Report'; 
+import Report from '@/models/BattleReport';
+import User from '@/models/User';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: any) {
   try {
-    const session = await getServerSession(authOptions);
-    const userLogin = (session?.user as any)?.login;
+    await dbConnect();
     
-    if (!userLogin) {
-      return NextResponse.json({ count: 0 });
+    // 1. Уніфікована ідентифікація (Android + Веб)
+    let login = null;
+    const sessionToken = req.cookies.get('session_token')?.value;
+    
+    if (sessionToken) {
+      login = sessionToken;
+    } else {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (token?.login) login = token.login;
     }
 
-    await dbConnect();
+    if (!login) return NextResponse.json({ count: 0 }, { status: 401 });
 
-    // Рахуємо звіти, де поле authorLogin або схоже дорівнює логіну юзера
-    // Переконайся, що в моделі Report у тебе поле для логіна, а не пошти
-    const count = await Report.countDocuments({ authorLogin: userLogin }).maxTimeMS(3000);
+    // 2. Рахуємо звіти
+    // ВАЖЛИВО: Переконайтеся, що в моделі BattleReport поле називається саме authorLogin
+    const count = await Report.countDocuments({ authorLogin: login });
     
-    return NextResponse.json({ count: count || 0 });
-  } catch (error) {
+    return NextResponse.json({ count });
+  } catch (e) {
+    console.error("Помилка статистики:", e);
     return NextResponse.json({ count: 0 });
   }
 }

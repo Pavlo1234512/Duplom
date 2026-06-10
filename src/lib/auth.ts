@@ -18,39 +18,53 @@ export const authOptions: NextAuthOptions = {
         try {
           await dbConnect();
           
+          const lookupLogin = credentials?.login?.trim().toLowerCase();
+
           // Явно просимо базу повернути всі потрібні поля
           const user = await User.findOne({ 
-            login: credentials?.login?.trim().toLowerCase() 
+            login: lookupLogin 
           }).select("+password +twoFactorSecret unit firstName lastName middleName role login");
 
-          if (!user) throw new Error("Користувача не знайдено");
+          if (!user) throw new Error("Невірна комбінація логіна або пароля");
 
+          // Перевірка пароля
           const isMatch = await bcrypt.compare(credentials!.password, user.password);
-          if (!isMatch) throw new Error("Невірний пароль");
+          if (!isMatch) throw new Error("Невірна комбінація логіна або пароля");
 
-          const isTokenValid = speakeasy.totp.verify({
-            secret: user.twoFactorSecret,
-            encoding: "base32",
-            token: credentials!.twoFactor,
-            window: 1, 
-          });
+          // ГНУЧКА ПЕРЕВІРКА 2FA: Перевіряємо тільки якщо у користувача активовано секрет в базі
+          if (user.twoFactorSecret) {
+            if (!/^\d{6}$/.test(credentials?.twoFactor || "")) {
+              throw new Error("Код 2FA повинен складатися з 6 цифр");
+            }
 
-          if (!isTokenValid) throw new Error("Невірний код 2FA");
+            const isTokenValid = speakeasy.totp.verify({
+              secret: user.twoFactorSecret,
+              encoding: "base32",
+              token: credentials!.twoFactor,
+              window: 1, 
+            });
+
+            if (!isTokenValid) throw new Error("Невірний або прострочений код 2FA");
+            console.log("=== 2FA ПЕРЕВІРКУ ПРОЙДЕНО УСПІШНО ===");
+          } else {
+            console.log("=== 2FA ще не налаштовано для цього профілю, пропускаємо ===");
+          }
 
           // Скорочуємо ПІБ: Прізвище І. П.
           const f = user.firstName ? `${user.firstName.charAt(0)}.` : "";
           const m = user.middleName ? `${user.middleName.charAt(0)}.` : "";
-          const shortName = `${user.lastName} ${f}${m}`.trim();
+          const shortName = `${user.lastName || ''} ${f}${m}`.trim() || user.login;
 
           // Повертаємо об'єкт для запису в JWT
           return {
             id: user._id.toString(),
             name: shortName, 
-            unit: user.unit, // Значення з бази або дефолт
-            role: user.role,
+            unit: user.unit || "ВІТІ", 
+            role: user.role || "USER",
             login: user.login
           };
         } catch (error: any) {
+          console.error("NextAuth authorize error caught:", error.message);
           throw new Error(error.message);
         }
       }
@@ -70,8 +84,8 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id;
-        (session.user as any).name = token.name; // Тут буде скорочене ім'я
-        (session.user as any).unit = token.unit; // Тут буде підрозділ
+        (session.user as any).name = token.name; 
+        (session.user as any).unit = token.unit; 
         (session.user as any).role = token.role;
         (session.user as any).login = token.login;
       }

@@ -8,6 +8,7 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   unit: { type: String, required: true },
   position: { type: String, required: true },
+  rank: { type: String, default: "" }, // ДОДАНО: Поле для звання
   login: { type: String, required: true, unique: true },
   password: { type: String, required: true, select: false },
   twoFactorSecret: { type: String, required: true, select: false },

@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { Resend } from 'resend';
 
 // Ініціалізація Resend з твоїм ключем
-const resend = new Resend("re_LPa5XCt1_D2qBjNZYXanggLawMDR1wRHV");
+const resend = new Resend(process.env.RESEND_API_KEY || "");
 
 export async function POST(req: Request) {
   try {

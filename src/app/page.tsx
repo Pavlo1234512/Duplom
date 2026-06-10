@@ -1,163 +1,103 @@
 "use client";
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
-interface Report {
-  _id: string;
-  unit: string;
-  location: string;
-  enemy_killed: number;
-  our_killed: number;
-  our_wounded: number;
-  vehicles: { count: number; detail: string };
-  infrastructure: { count: number; detail: string };
-  createdAt: string;
-}
+export default function DashboardPage() {
+  const [allReports, setAllReports] = useState<any[]>([]);
+  const [viewMode, setViewMode] = useState<'daily' | 'total'>('total');
+  const [loading, setLoading] = useState(false);
 
-export default function HomePage() {
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/reports')
-      .then(res => res.json())
-      .then(data => {
-        setReports(Array.isArray(data) ? data : []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/reports', { cache: 'no-store' });
+      const data = await res.json();
+      setAllReports(data);
+    } catch (e) {
+      console.error("Помилка завантаження:", e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // Розрахунок загальної статистики
-  const totals = reports.reduce((acc, curr) => ({
-    enemyKilled: acc.enemyKilled + (Number(curr.enemy_killed) || 0),
-    ourKilled: acc.ourKilled + (Number(curr.our_killed) || 0),
-    ourWounded: acc.ourWounded + (Number(curr.our_wounded) || 0),
-    vehicles: acc.vehicles + (Number(curr.vehicles?.count) || 0),
-    infrastructure: acc.infrastructure + (Number(curr.infrastructure?.count) || 0),
-  }), { enemyKilled: 0, ourKilled: 0, ourWounded: 0, vehicles: 0, infrastructure: 0 });
+  useEffect(() => { loadData(); }, [loadData]);
 
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-screen bg-[#05070a]">
-      <div className="text-blue-500 animate-pulse font-mono uppercase tracking-[0.3em] text-xs">
-        Система ініціалізації бази даних...
-      </div>
-    </div>
-  );
+  // Функція для витягування першого числа з рядка (наприклад, "1 тепловізор" -> 1)
+  const parseQuantity = (str: any) => {
+    if (!str || typeof str !== 'string') return 0;
+    const match = str.match(/^\d+/); // Шукає цифри на початку рядка
+    return match ? parseInt(match[0], 10) : 0;
+  };
+
+  const filteredReports = viewMode === 'daily'
+    ? allReports.filter((r: any) => new Date(r.createdAt).toDateString() === new Date().toDateString())
+    : allReports;
+
+  const stats = filteredReports.reduce((acc: any, curr: any) => {
+    // Втрати ворога (equipment.destroyed - рядок)
+    const enemyEquipStr = curr.enemy_losses?.equipment?.destroyed || "";
+    
+    // Втрати наші (масив own_equipment_losses, де кожен об'єкт має destroyed - рядок)
+    const ourEquipTotal = (curr.own_equipment_losses || []).reduce((sum: number, item: any) => {
+      return sum + parseQuantity(item.destroyed);
+    }, 0);
+
+    return {
+      enemyPersonnel: acc.enemyPersonnel + (curr.enemy_losses?.personnel?.dead || 0),
+      enemyVehicles: acc.enemyVehicles + parseQuantity(enemyEquipStr),
+      shelling: acc.shelling + (curr.shelling?.total_count || 0),
+      drones: acc.drones + (curr.airstrike?.count || 0),
+      ourVehicles: acc.ourVehicles + ourEquipTotal,
+    };
+  }, { enemyPersonnel: 0, enemyVehicles: 0, shelling: 0, drones: 0, ourVehicles: 0 });
 
   return (
-    // Видалено <aside>, бо він вже є у твойому layout.tsx
-    <main className="flex-1 p-8 bg-[#05070a] min-h-screen overflow-y-auto">
-      {/* Заголовок панелі */}
-      <header className="flex justify-between items-center mb-10 border-b border-white/5 pb-8">
+    <main className="p-8 bg-[#F4F6F4] min-h-screen">
+      <header className="mb-10 flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-black italic uppercase tracking-tighter text-white">
-            СИТУАЦІЙНИЙ ЦЕНТР <span className="text-blue-600">ВІТІ</span>
-          </h1>
-          <p className="text-slate-500 text-[10px] font-black tracking-[0.3em] uppercase mt-2 opacity-60">
-            Система моніторингу бойових донесень v2.5
+          <h1 className="text-4xl font-black uppercase tracking-tighter text-[#1B2E1E]">Аналітичне зведення</h1>
+          <p className="text-[#556B2F] text-[10px] font-bold uppercase tracking-[0.2em] mt-1">
+            {viewMode === 'daily' ? 'Поточна доба' : 'За весь період'}
           </p>
         </div>
-        
-        <div className="text-right flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-            <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">STATUS: ONLINE</span>
-          </div>
-          <p className="text-xs font-mono text-blue-400 opacity-80" suppressHydrationWarning>
-            {new Date().toLocaleTimeString('uk-UA')}
-          </p>
+        <div className="flex bg-white rounded-lg p-1 border border-slate-200">
+          <button onClick={() => setViewMode('daily')} className={`px-6 py-2 text-[10px] font-black uppercase rounded ${viewMode === 'daily' ? 'bg-[#556B2F] text-white' : 'text-[#556B2F]'}`}>Доба</button>
+          <button onClick={() => setViewMode('total')} className={`px-6 py-2 text-[10px] font-black uppercase rounded ${viewMode === 'total' ? 'bg-[#556B2F] text-white' : 'text-[#556B2F]'}`}>Всього</button>
         </div>
       </header>
-
-      {/* Віджети статистики */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5 mb-12">
-        <StatCard label="Ворог (200)" value={totals.enemyKilled} color="text-red-500" border="border-red-600" />
-        <StatCard label="Наші (200)" value={totals.ourKilled} color="text-yellow-500" border="border-yellow-600" />
-        <StatCard label="Наші (300)" value={totals.ourWounded} color="text-blue-400" border="border-blue-500" />
-        <StatCard label="Техніка" value={totals.vehicles} color="text-orange-500" border="border-orange-600" />
-        <StatCard label="Об'єкти" value={totals.infrastructure} color="text-purple-500" border="border-purple-600" />
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <StatCard label="Ворог (полеглі)" value={stats.enemyPersonnel} color="text-[#8B0000]" />
+        <StatCard label="Арт-обстріли" value={stats.shelling} color="text-[#B8860B]" />
+        <StatCard label="Скиди БПЛА" value={stats.drones} color="text-[#2E5B82]" />
+        <StatCard label="Знищена техніка ворога" value={stats.enemyVehicles} color="text-[#556B2F]" />
       </div>
 
-      {/* Основна таблиця - Журнал */}
-      <div className="bg-[#0d1117]/50 border border-white/5 rounded-[2.5rem] overflow-hidden backdrop-blur-md shadow-2xl">
-        <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-          <h2 className="text-xl font-black uppercase italic tracking-wider text-white">Журнал бойових дій</h2>
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-slate-500 uppercase font-bold">Усього записів:</span>
-            <span className="text-[11px] bg-blue-600 text-white px-4 py-1.5 rounded-full font-black uppercase shadow-lg shadow-blue-600/20">
-              {reports.length} Звітів
-            </span>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-slate-500 text-[10px] uppercase tracking-[0.25em] border-b border-white/5">
-                <th className="p-8 font-black">Час / Підрозділ</th>
-                <th className="p-8 font-black">Локація</th>
-                <th className="p-8 font-black text-red-500">Втрати ворога</th>
-                <th className="p-8 font-black text-yellow-500 text-right">Наші (200 / 300)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {reports.map((report) => (
-                <tr key={report._id} className="hover:bg-blue-600/[0.03] transition-all group">
-                  <td className="p-8">
-                    <p className="text-[10px] text-slate-600 mb-1 font-mono tracking-wider">
-                      {new Date(report.createdAt).toLocaleString('uk-UA')}
-                    </p>
-                    <p className="font-black text-blue-500 uppercase italic text-sm group-hover:text-blue-400 transition-colors">
-                      {report.unit}
-                    </p>
-                  </td>
-                  <td className="p-8 text-xs font-bold text-slate-400 italic uppercase tracking-tight">
-                    {report.location}
-                  </td>
-                  <td className="p-8">
-                    <div className="flex items-center gap-3">
-                      <span className="font-black text-red-600 text-2xl tracking-tighter">-{report.enemy_killed}</span>
-                      <span className="text-[9px] font-black text-red-600/40 uppercase">KIA</span>
-                    </div>
-                  </td>
-                  <td className="p-8 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <span className="text-yellow-500 font-black text-lg">{report.our_killed}</span>
-                      <span className="text-white/10 font-thin text-2xl">/</span>
-                      <span className="text-blue-400 font-black text-lg">{report.our_wounded}</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          
-          {reports.length === 0 && (
-            <div className="p-20 text-center text-slate-700 font-black uppercase italic tracking-widest text-xs opacity-20">
-              Дані відсутні або завантажуються...
-            </div>
-          )}
-        </div>
+      <div className="bg-white p-8 rounded-3xl shadow-sm border border-[#A3B899]/30">
+        <h2 className="text-[10px] uppercase font-black tracking-[0.2em] text-[#556B2F] mb-6">Порівняння втрат техніки (Ворог vs Наші)</h2>
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart data={[
+            { name: 'Кількість одиниць', Ворог: stats.enemyVehicles, Наші: stats.ourVehicles }
+          ]}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="Ворог" name="Знищена техніка ворога" fill="#a10000" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Наші" name="Наша знищена техніка" fill="#008b2a" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </main>
   );
 }
 
-interface StatCardProps {
-  label: string;
-  value: number;
-  color: string;
-  border: string;
-}
-
-function StatCard({ label, value, color, border }: StatCardProps) {
+function StatCard({ label, value, color }: any) {
   return (
-    <div className={`bg-white/[0.02] border-t-2 ${border} p-6 rounded-3xl hover:bg-white/[0.04] hover:translate-y-[-4px] transition-all duration-300 shadow-xl`}>
-      <p className="text-[9px] uppercase font-black tracking-[0.2em] text-slate-500 mb-3 opacity-80">{label}</p>
-      <div className="flex items-end justify-between">
-        <span className={`text-4xl font-black tracking-tighter ${color}`}>{value}</span>
-        <span className="text-[8px] text-slate-700 font-black uppercase tracking-tighter mb-1">одиниць</span>
-      </div>
+    <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#A3B899]/30">
+      <p className="text-[9px] uppercase font-black tracking-[0.2em] text-[#556B2F] mb-2">{label}</p>
+      <span className={`text-4xl font-black tracking-tighter ${color}`}>{value}</span>
     </div>
   );
 }

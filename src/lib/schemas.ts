@@ -32,6 +32,7 @@ export const CoordinateSchema = z.object({
 
 export const ReportHeaderSchema = z.object({
   from_unit: z.string().min(1, "Вкажіть підрозділ"),
+  author: z.string().optional(), // <--- ДОДАЙТЕ ЦЕЙ РЯДОК
   report_type: z.string().default("ЗВІТ"),
   time_report: z.string().or(z.date()),
 });

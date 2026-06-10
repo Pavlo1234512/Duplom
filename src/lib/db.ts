@@ -1,41 +1,17 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI!;
 
-if (!MONGODB_URI) {
-  throw new Error('Додайте MONGODB_URI у файл .env.local');
-}
+if (!MONGODB_URI) throw new Error('Вкажіть MONGODB_URI в .env');
 
-// Використовуємо cast до any для глобального об'єкта, щоб уникнути суворих перевірок TS у цьому місці
-let cached = (global as any).mongoose;
-
-if (!cached) {
-  cached = (global as any).mongoose = { conn: null, promise: null };
-}
+let cached = (global as any).mongoose || { conn: null, promise: null };
 
 async function dbConnect() {
-  if (cached.conn) {
-    return cached.conn;
-  }
-
+  if (cached.conn) return cached.conn;
   if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-      tls: true,
-      tlsAllowInvalidCertificates: true,
-      connectTimeoutMS: 10000,
-    };
-
-    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((m) => m);
+    cached.promise = mongoose.connect(MONGODB_URI).then((mongoose) => mongoose);
   }
-
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
-
+  cached.conn = await cached.promise;
   return cached.conn;
 }
 
